@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>3DダンジョンRPG</title>
+<style>
+  * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#000; color:#fff;
+    font-family: "Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif; }
+  #game { display:block; width:100vw; height:100vh; image-rendering:pixelated; }
+
+#hud { position:fixed; top:12px; left:12px; font-size:13px;
+background:rgba(0,0,0,0.55); padding:6px 10px; border:1px solid #444; border-radius:4px;
+letter-spacing:0.05em; line-height:1.6; }
+#hud .potion { color:#fda; }
+
+#ui { position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+display:grid; grid-template-columns:repeat(3,60px); grid-template-rows:repeat(2,60px);
+gap:6px; z-index:5; }
+#ui button { font-size:22px; padding:0; border:1px solid #888; background:rgba(30,30,40,0.85);
+color:#fff; border-radius:6px; touch-action:manipulation; }
+#ui button:active { background:#555; }
+.btn-up    { grid-column:2; grid-row:1; }
+.btn-left  { grid-column:1; grid-row:2; }
+.btn-down  { grid-column:2; grid-row:2; }
+.btn-right { grid-column:3; grid-row:2; }
+
+.overlay { position:fixed; inset:0; display:none; background:rgba(0,0,0,0.88);
+z-index:10; padding:20px; flex-direction:column; justify-content:center; align-items:center;
+text-align:center; }
+.overlay.show { display:flex; }
+.overlay h1 { font-size:28px; margin:0 0 16px; }
+.overlay h2 { font-size:22px; margin:0 0 14px; }
+.enemy { font-size:80px; margin:6px 0 14px; }
+
+.hpblock { width:min(85vw,320px); margin:4px 0; font-size:13px; text-align:left; }
+.hpblock .label { display:flex; justify-content:space-between; margin-bottom:3px; }
+.hpbar { width:100%; height:10px; background:#333; border:1px solid #888; }
+.hpbar > div { height:100%; transition:width .25s; }
+.ehp > div { background:#d33; }
+.php > div { background:#3d7; }
+
+.battle-btns { display:grid; grid-template-columns:1fr 1fr; gap:8px;
+width:min(85vw,320px); margin-top:10px; }
+.battle-btns button { font-size:16px; padding:12px;
+background:#222; color:#fff; border:1px solid #888; border-radius:4px; }
+.battle-btns button:active { background:#555; }
+.battle-btns button:disabled { opacity:0.4; }
+.log { min-height:40px; margin:10px 0 4px; font-size:14px; color:#ffd;
+width:min(85vw,320px); }
+.treasure { font-size:100px; margin:10px; }
+.restart { margin-top:20px; padding:10px 20px; font-size:16px;
+background:#222; color:#fff; border:1px solid #888; border-radius:4px; }
+
+#fieldAction { position:fixed; top:12px; right:12px; z-index:5;
+background:rgba(30,30,40,0.85); color:#fff; border:1px solid #888;
+border-radius:6px; padding:8px 12px; font-size:14px; }
+#fieldAction:active { background:#555; }
+#fieldAction:disabled { opacity:0.4; }
+
+.toast { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+background:rgba(0,0,0,0.8); border:1px solid #888; padding:12px 20px;
+font-size:16px; z-index:20; display:none; }
+.toast.show { display:block; animation:fade 1.6s forwards; }
+@keyframes fade { 0%,70% {opacity:1;} 100% {opacity:0;} }
+</style>
+
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="hud">
+  HP <span id="php">25</span>/<span id="phpMax">25</span><br>
+  <span class="potion">🧪 やくそう ×<span id="potionCount">5</span></span>　B1F
+</div>
+
+<button id="fieldAction" onclick="useHerbField()">🧪 やくそうを使う</button>
+
+<div id="ui">
+  <button class="btn-up"    onclick="move(1)">▲</button>
+  <button class="btn-left"  onclick="turn(-1)">◀</button>
+  <button class="btn-down"  onclick="move(-1)">▼</button>
+  <button class="btn-right" onclick="turn(1)">▶</button>
+</div>
+
+<div id="battle" class="overlay">
+  <h2 id="enemyName">スライムが現れた！</h2>
+  <div class="enemy" id="enemyIcon">🟢</div>
+
+  <div class="hpblock">
+    <div class="label"><span id="enemyLabel">敵</span><span id="ehpText">10/10</span></div>
+    <div class="hpbar ehp"><div id="ehpBar" style="width:100%"></div></div>
+  </div>
+
+  <div class="hpblock">
+    <div class="label"><span>じぶん</span><span id="phpText">25/25</span></div>
+    <div class="hpbar php"><div id="phpBar" style="width:100%"></div></div>
+  </div>
+
+  <div class="log" id="log">　</div>
+  <div class="battle-btns">
+    <button id="btnAttack" onclick="attack()">たたかう</button>
+    <button id="btnHerb"   onclick="useHerbBattle()">🧪 やくそう</button>
+    <button id="btnEscape" onclick="escape()">にげる</button>
+  </div>
+</div>
+
+<div id="clear" class="overlay">
+  <h1>ダンジョンクリア！</h1>
+  <div class="treasure">💎</div>
+  <p>宝を手に入れた！</p>
+  <button class="restart" onclick="location.reload()">もう一度</button>
+</div>
+
+<div id="gameover" class="overlay">
+  <h1 style="color:#f66;">全滅…</h1>
+  <p>目を覚ますと宿屋のベッドの上だった。</p>
+  <button class="restart" onclick="location.reload()">やりなおす</button>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+function resize(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resize();
+window.addEventListener("resize", resize);
+
+const map = [
+  [1,1,1,1,1,1,1],
+  [1,0,0,0,1,0,1],
+  [1,0,1,0,1,0,1],
+  [1,0,1,0,0,0,1],
+  [1,0,0,0,1,0,1],
+  [1,1,1,0,0,2,1],
+  [1,1,1,1,1,1,1],
+];
+const MH = map.length, MW = map[0].length;
+
+let px = 1.5, py = 1.5;
+let dir = 0;
+let moving = false, rotating = false;
+
+let playerHP = 25, playerMax = 25;
+let potions = 5;
+const HERB_HEAL = 15;
+let gameEnded = false;
+
+function updateHUD(){
+  document.getElementById("php").textContent = Math.max(0, playerHP);
+  document.getElementById("phpMax").textContent = playerMax;
+  document.getElementById("potionCount").textContent = potions;
+  const btn = document.getElementById("fieldAction");
+  btn.disabled = potions <= 0 || playerHP >= playerMax || gameEnded;
+}
+
+function makeWallPattern(){
+  const c = document.createElement("canvas");
+  c.width = 64; c.height = 64;
+  const g = c.getContext("2d");
+  g.fillStyle = "#6b4a2b"; g.fillRect(0,0,64,64);
+  g.fillStyle = "#3a2615";
+  for(let y=0;y<64;y+=16){
+    const off = (y/16)%2 ? 8 : 0;
+    for(let x=-8;x<64;x+=24){ g.fillRect(x+off, y, 22, 2); }
+    g.fillRect(0, y, 64, 1);
+  }
+  g.fillStyle = "#2a1a0d";
+  for(let y=0;y<64;y+=16){
+    const off = (y/16)%2 ? 8 : 0;
+    for(let x=-8;x<64;x+=24){ g.fillRect(x+off+20, y, 2, 16); }
+  }
+  return c;
+}
+const wallTex = makeWallPattern();
+
+function draw(){
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = "#1a1a24"; ctx.fillRect(0,0,W,H/2);
+  ctx.fillStyle = "#2a1e14"; ctx.fillRect(0,H/2,W,H/2);
+
+  const fov = Math.PI/3;
+  const numRays = Math.min(W, 320);
+  const stripW = W / numRays;
+
+  for(let i=0;i<numRays;i++){
+    const rayAngle = dir - fov/2 + (i/numRays)*fov;
+    const cos = Math.cos(rayAngle), sin = Math.sin(rayAngle);
+    let dist = 0, hit = false, wallX = 0;
+    const step = 0.02;
+    while(dist < 20){
+      dist += step;
+      const rx = px + cos*dist, ry = py + sin*dist;
+      const mx = Math.floor(rx), my = Math.floor(ry);
+      if(my<0||my>=MH||mx<0||mx>=MW){ break; }
+      if(map[my][mx] > 0){
+        hit = true;
+        const fx = rx - mx, fy = ry - my;
+        wallX = Math.min(fx,1-fx) < Math.min(fy,1-fy) ? fy : fx;
+        break;
+      }
+    }
+    if(hit){
+      const corrected = dist * Math.cos(rayAngle - dir);
+      const h = Math.min(H, H / corrected);
+      const y0 = (H - h)/2;
+      const tx = Math.floor(wallX * wallTex.width);
+      ctx.drawImage(wallTex, tx, 0, 1, wallTex.height,
+        i*stripW, y0, stripW+1, h);
+      const shade = Math.min(0.7, corrected*0.08);
+      ctx.fillStyle = `rgba(0,0,0,${shade})`;
+      ctx.fillRect(i*stripW, y0, stripW+1, h);
+    }
+  }
+
+  const ms = 10;
+  // 右側、「やくそうをつかう」ボタンの少し下
+  const mmX = W - MW*ms - 10;
+  const mmY = 60;
+  ctx.save();
+  ctx.translate(mmX, mmY);
+  // 背景
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillRect(-4, -4, MW*ms+8, MH*ms+8);
+  for(let y=0;y<MH;y++) for(let x=0;x<MW;x++){
+    ctx.fillStyle = map[y][x]===1 ? "#888" : map[y][x]===2 ? "#d55" : "#222";
+    ctx.fillRect(x*ms, y*ms, ms-1, ms-1);
+  }
+  ctx.fillStyle = "#ff0";
+  ctx.beginPath(); ctx.arc(px*ms, py*ms, 2, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = "#ff0";
+  ctx.beginPath();
+  ctx.moveTo(px*ms, py*ms);
+  ctx.lineTo(px*ms + Math.cos(dir)*6, py*ms + Math.sin(dir)*6);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function move(step){
+  if(moving || rotating || gameEnded) return;
+  if(document.querySelector(".overlay.show")) return;
+  const tx = px + Math.cos(dir)*step;
+  const ty = py + Math.sin(dir)*step;
+  const mx = Math.floor(tx), my = Math.floor(ty);
+  if(my<0||my>=MH||mx<0||mx>=MW || map[my][mx]===1) return;
+  moving = true;
+  const sx = px, sy = py;
+  let t = 0;
+  function anim(){
+    t += 0.12;
+    if(t>=1){ px=tx; py=ty; moving=false; checkEvent(); return; }
+    px = sx + (tx-sx)*t;
+    py = sy + (ty-sy)*t;
+    requestAnimationFrame(anim);
+  }
+  anim();
+}
+
+function turn(d){
+  if(moving || rotating || gameEnded) return;
+  if(document.querySelector(".overlay.show")) return;
+  rotating = true;
+  const start = dir, target = dir + d*Math.PI/2;
+  let t = 0;
+  function anim(){
+    t += 0.15;
+    if(t>=1){ dir = target; rotating=false; return; }
+    dir = start + (target-start)*t;
+    requestAnimationFrame(anim);
+  }
+  anim();
+}
+
+let currentEnemy = null;
+const enemies = [
+  { name:"スライム",   icon:"🟢", hp:10, atk:2, drop:0.6 },
+  { name:"コウモリ",   icon:"🦇", hp:8,  atk:3, drop:0.5 },
+  { name:"ゴブリン",   icon:"👺", hp:14, atk:4, drop:0.7 },
+];
+const boss = { name:"ドラゴン", icon:"🐉", hp:22, atk:4, isBoss:true, drop:0 };
+
+function checkEvent(){
+  if(gameEnded) return;
+  const cell = map[Math.floor(py)][Math.floor(px)];
+  if(cell === 2){ startBattle(boss); return; }
+  if(Math.random() < 0.25){
+    const e = enemies[Math.floor(Math.random()*enemies.length)];
+    startBattle({...e});
+  }
+}
+
+function showToast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.remove("show");
+  void t.offsetWidth;
+  t.classList.add("show");
+}
+
+function updateBattleHP(){
+  if(currentEnemy){
+    const ep = Math.max(0, currentEnemy.hp/currentEnemy.maxHp*100);
+    document.getElementById("ehpBar").style.width = ep + "%";
+    document.getElementById("ehpText").textContent =
+      `${Math.max(0,currentEnemy.hp)}/${currentEnemy.maxHp}`;
+    document.getElementById("enemyLabel").textContent = currentEnemy.name;
+  }
+  const pp = Math.max(0, playerHP/playerMax*100);
+  document.getElementById("phpBar").style.width = pp + "%";
+  document.getElementById("phpText").textContent =
+    `${Math.max(0,playerHP)}/${playerMax}`;
+  const hb = document.getElementById("btnHerb");
+  hb.textContent = `🧪 やくそう(${potions})`;
+}
+
+function setBattleButtons(enabled){
+  document.getElementById("btnAttack").disabled = !enabled;
+  document.getElementById("btnEscape").disabled = !enabled;
+  document.getElementById("btnHerb").disabled = !enabled ||
+    potions <= 0 || playerHP >= playerMax;
+}
+
+function startBattle(e){
+  currentEnemy = e;
+  currentEnemy.maxHp = e.hp;
+  document.getElementById("enemyName").textContent = `${e.name}が現れた！`;
+  document.getElementById("enemyIcon").textContent = e.icon;
+  document.getElementById("log").textContent = "　";
+  updateBattleHP();
+  setBattleButtons(true);
+  document.getElementById("battle").classList.add("show");
+}
+
+function endBattle(winByBoss=false){
+  document.getElementById("battle").classList.remove("show");
+  currentEnemy = null;
+  if(winByBoss){
+    gameEnded = true;
+    document.getElementById("clear").classList.add("show");
+  }
+  updateHUD();
+}
+
+function triggerGameOver(){
+  gameEnded = true;
+  playerHP = 0;
+  updateHUD();
+  updateBattleHP();
+  setBattleButtons(false);
+  setTimeout(()=>{
+    document.getElementById("battle").classList.remove("show");
+    currentEnemy = null;
+    document.getElementById("gameover").classList.add("show");
+  }, 900);
+}
+
+function enemyTurn(){
+  if(!currentEnemy || gameEnded) return;
+  const edmg = currentEnemy.atk + Math.floor(Math.random()*3);
+  playerHP = Math.max(0, playerHP - edmg);
+  document.getElementById("log").textContent =
+    `${currentEnemy.name}の攻撃！ ${edmg}のダメージ`;
+  updateBattleHP();
+  updateHUD();
+  if(playerHP <= 0){ triggerGameOver(); return; }
+  setBattleButtons(true);
+}
+
+function attack(){
+  if(!currentEnemy || gameEnded) return;
+  setBattleButtons(false);
+  const dmg = 3 + Math.floor(Math.random()*4);
+  currentEnemy.hp -= dmg;
+  document.getElementById("log").textContent = `${dmg}のダメージ！`;
+  updateBattleHP();
+
+  if(currentEnemy.hp <= 0){
+    const wasBoss = currentEnemy.isBoss;
+    const dropChance = currentEnemy.drop || 0;
+    setTimeout(()=>{
+      if(!wasBoss && Math.random() < dropChance){
+        potions++;
+        showToast("🧪 やくそうを手に入れた！");
+      }
+      endBattle(wasBoss);
+    }, 600);
+    return;
+  }
+  setTimeout(enemyTurn, 500);
+}
+
+function useHerbBattle(){
+  if(!currentEnemy || gameEnded) return;
+  if(potions <= 0 || playerHP >= playerMax) return;
+  setBattleButtons(false);
+  potions--;
+  const heal = Math.min(HERB_HEAL, playerMax - playerHP);
+  playerHP += heal;
+  document.getElementById("log").textContent = `やくそうを使った！ HPが${heal}回復`;
+  updateBattleHP();
+  updateHUD();
+  setTimeout(enemyTurn, 500);
+}
+
+function useHerbField(){
+  if(gameEnded) return;
+  if(potions <= 0){ showToast("やくそうがない"); return; }
+  if(playerHP >= playerMax){ showToast("HPはまんたん"); return; }
+  potions--;
+  const heal = Math.min(HERB_HEAL, playerMax - playerHP);
+  playerHP += heal;
+  showToast(`🧪 HPが${heal}回復！`);
+  updateHUD();
+}
+
+function escape(){
+  if(!currentEnemy || gameEnded) return;
+  if(currentEnemy.isBoss){
+    document.getElementById("log").textContent = "逃げられない！";
+    return;
+  }
+  setBattleButtons(false);
+  if(Math.random() < 0.7){
+    document.getElementById("log").textContent = "うまく逃げ切った！";
+    setTimeout(()=>endBattle(false), 500);
+  } else {
+    document.getElementById("log").textContent = "逃げられなかった！";
+    setTimeout(enemyTurn, 500);
+  }
+}
+
+window.addEventListener("keydown", e=>{
+  if(gameEnded) return;
+  if(document.querySelector(".overlay.show")) return;
+  if(e.key==="ArrowUp"||e.key==="w") move(1);
+  if(e.key==="ArrowDown"||e.key==="s") move(-1);
+  if(e.key==="ArrowLeft"||e.key==="a") turn(-1);
+  if(e.key==="ArrowRight"||e.key==="d") turn(1);
+  if(e.key==="h") useHerbField();
+});
+
+updateHUD();
+function loop(){ draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+
+</body>
+</html>
